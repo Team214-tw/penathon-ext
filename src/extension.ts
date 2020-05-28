@@ -13,15 +13,19 @@ export function activate(context: vscode.ExtensionContext) {
   // Use the console to output diagnostic information (console.log) and errors (console.error)
   // This line of code will only be executed once when your extension is activated
 
+  let diagnosticCollection = vscode.languages.createDiagnosticCollection(
+    "penathon"
+  );
+
   vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
     let penathonResult;
     try {
       const penathon = execFileSync("python", ["main.py", document.fileName], {
         cwd: path.join(context.extensionUri.fsPath, "penathon"),
       });
-      penathonResult = penathon.toString();
+      penathonResult = penathon.toString().replace("NoneType", "None");
     } catch (error) {
-      vscode.window.showErrorMessage(error.stdout.toString());
+      vscode.window.showErrorMessage(error.message);
       return;
     }
 
@@ -31,6 +35,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage(fileName);
     fs.writeFileSync(fileName, penathonResult);
 
+    diagnosticCollection.clear();
     let mypyResult: string;
     try {
       const mypy = execFileSync("mypy", [fileName]);
@@ -44,9 +49,7 @@ export function activate(context: vscode.ExtensionContext) {
     let m: RegExpExecArray | null;
     let editor = vscode.window.activeTextEditor;
     let diagnostics: vscode.Diagnostic[] = [];
-    let diagnosticCollection = vscode.languages.createDiagnosticCollection(
-      "stuff"
-    );
+
     while ((m = regex.exec(mypyResult)) !== null) {
       if (m.index === regex.lastIndex) {
         regex.lastIndex++;
