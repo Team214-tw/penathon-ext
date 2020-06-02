@@ -10,6 +10,7 @@ import * as tempy from "tempy";
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
   let penathonArr: Array<string> = [];
+  const old2NewLineMap = new Map<number, number>();
   // Use the console to output diagnostic information (console.log) and errors (console.error)
   // This line of code will only be executed once when your extension is activated
 
@@ -18,7 +19,7 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
-    let penathonResult;
+    let penathonResult: string;
     try {
       const penathon = execFileSync("python", ["main.py", document.fileName], {
         cwd: path.join(context.extensionUri.fsPath, "penathon"),
@@ -30,22 +31,38 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     penathonArr = penathonResult.split("\n");
-    penathonArr.shift();
     const fileName = tempy.file();
     vscode.window.showInformationMessage(fileName);
+
+    let curNewLine = 1,
+      curOldLine = 0;
+
+    const new2OldLineMap = new Map<number, number>();
+    for (const line of penathonArr) {
+      const regex = /# line: (\d+)/m;
+      const m = regex.exec(line);
+      if (m !== null) {
+        curOldLine = parseInt(m[1]);
+      } else {
+        new2OldLineMap.set(curNewLine, curOldLine);
+        old2NewLineMap.set(curOldLine, curNewLine);
+      }
+      curNewLine++;
+    }
+
     fs.writeFileSync(fileName, penathonResult);
 
     diagnosticCollection.clear();
     let mypyResult: string;
     try {
-      const mypy = execFileSync("mypy", [fileName]);
+      execFileSync("mypy", [fileName]);
       vscode.window.showInformationMessage("No Error");
       return;
     } catch (error) {
       mypyResult = error.stdout.toString();
     }
 
-    const regex = /.*:(\d)+: (.*)/gm;
+    const regex = /.*:(\d+): (.*)/gm;
     let m: RegExpExecArray | null;
     let editor = vscode.window.activeTextEditor;
     let diagnostics: vscode.Diagnostic[] = [];
@@ -57,7 +74,12 @@ export function activate(context: vscode.ExtensionContext) {
 
       diagnostics.push(
         new vscode.Diagnostic(
-          new vscode.Range(parseInt(m[1]) - 2, 0, parseInt(m[1]) - 2, 10000),
+          new vscode.Range(
+            (new2OldLineMap.get(parseInt(m[1])) ?? 0) - 1,
+            0,
+            (new2OldLineMap.get(parseInt(m[1])) ?? 0) - 1,
+            10000
+          ),
           m[2],
           vscode.DiagnosticSeverity.Warning
         )
@@ -68,7 +90,10 @@ export function activate(context: vscode.ExtensionContext) {
 
   vscode.languages.registerHoverProvider("python", {
     provideHover(doc: vscode.TextDocument, position, token) {
-      return new vscode.Hover(penathonArr[position.line]);
+      const newLine = old2NewLineMap.get(position.line + 1);
+      if (newLine) {
+        return new vscode.Hover(penathonArr[newLine - 1]);
+      }
     },
   });
 }
